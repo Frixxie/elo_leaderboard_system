@@ -1,11 +1,10 @@
-mod users;
 mod db;
+mod users;
 
 use std::collections::HashMap;
 
 use actix_web::{get, post, web, App, Either, HttpServer, Responder};
-use elo::{Elo, HashMapIter, Player};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use elo::{Elo, Player};
 use structopt::StructOpt;
 use tokio::sync::RwLock;
 
@@ -35,35 +34,20 @@ async fn health() -> impl Responder {
 
 #[get("/players")]
 async fn get_players(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
+    elo: web::Data<RwLock<Elo<HashMap<std::string::String, Player>>>>,
 ) -> impl Responder {
     let elo = elo.read().await;
     web::Json(
-        elo.into_iter()
-            .map(|player| player.clone().into())
-            .collect::<Vec<User>>(),
+        /* elo
+        .map(|player| player.clone().into())
+        .collect::<Vec<User>>(), */
+        vec![User::new("test".to_string())],
     )
 }
 
 #[post("/player/{name}")]
 async fn add_player(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
+    elo: web::Data<RwLock<Elo<HashMap<std::string::String, Player>>>>,
     name: web::Path<String>,
 ) -> Either<impl Responder, impl Responder> {
     let mut elo = elo.write().await;
@@ -80,15 +64,7 @@ async fn add_player(
 
 #[post("/draw/{player1}/{player2}")]
 async fn add_draw(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
+    elo: web::Data<RwLock<Elo<HashMap<std::string::String, Player>>>>,
     path: web::Path<(String, String)>,
 ) -> Either<impl Responder, impl Responder> {
     let mut elo = elo.write().await;
@@ -110,15 +86,7 @@ async fn add_draw(
 
 #[post("/game/{winner}/{loser}")]
 async fn add_game(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
+    elo: web::Data<RwLock<Elo<HashMap<std::string::String, Player>>>>,
     path: web::Path<(String, String)>,
 ) -> Either<impl Responder, impl Responder> {
     let mut elo = elo.write().await;
