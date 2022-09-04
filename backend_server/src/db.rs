@@ -7,7 +7,7 @@ pub struct Database {
 }
 
 /// Sets up a new pool and creates the appropriate tables if they don't exist.
-pub async fn new_database(db_url: &str) -> Result<AnyPool, sqlx::Error> {
+pub async fn fresh_database(db_url: &str) -> Result<AnyPool, sqlx::Error> {
     // set up pool
     let pool = AnyPoolOptions::new()
         .max_connections(5)
@@ -31,13 +31,17 @@ pub async fn new_database(db_url: &str) -> Result<AnyPool, sqlx::Error> {
 }
 
 impl Database {
-    pub async fn set_up(pool: AnyPool) -> Self {
+    /// create a new database from a pool of connections
+    pub async fn new(pool: AnyPool) -> Self {
         Self { pool }
     }
 }
 
 #[async_trait]
 impl AsyncEloStorage for &Database {
+    /// Add a player to the Database
+    /// This should be called from another place, where users are added, so database should have a
+    /// way of adding users, that in addition adds a player afterwards?
     async fn add_player(&self, player: Player) {
         sqlx::query("INSERT INTO players (name, rating, number_of_games) VALUES ($1, $2, $3)")
             .bind(&player.name())
@@ -48,6 +52,7 @@ impl AsyncEloStorage for &Database {
             .unwrap();
     }
 
+    /// Update the player
     async fn update_player(&self, player: &Player) {
         sqlx::query("UPDATE players SET rating = $1, number_of_games = $2 WHERE name = $3")
             .bind(player.rating() as i32)
@@ -58,6 +63,7 @@ impl AsyncEloStorage for &Database {
             .unwrap();
     }
 
+    /// Get a player from the database
     async fn get(&self, name: &str) -> Option<Player> {
         let player: Player =
             sqlx::query("SELECT name, rating, number_of_games FROM players WHERE name = $1")
@@ -84,18 +90,22 @@ mod tests {
 
     #[tokio::test]
     async fn abstraction() {
-        let db = Database::set_up(new_database("sqlite::memory:").await.unwrap()).await;
-
+        // set up an in-memory database
+        let db = Database::new(fresh_database("sqlite::memory:").await.unwrap()).await;
         let elo = AsyncElo::new(&db);
 
+        // add users to this database
         elo.add_player("a").await;
         elo.add_player("b").await;
 
+        // play a game
         elo.add_game("a", "b", false).await.unwrap();
 
+        // check that the ratings updated correctly
         assert_eq!(elo.get_player("a").await.unwrap().rating(), 1016);
         assert_eq!(elo.get_player("b").await.unwrap().rating(), 984);
 
+        // check that the number of games updated correctly
         assert_eq!(elo.get_player("a").await.unwrap().number_of_games(), 1);
         assert_eq!(elo.get_player("b").await.unwrap().number_of_games(), 1);
     }
