@@ -1,11 +1,13 @@
 mod users;
 use std::collections::HashMap;
 
-use actix_web::{get, post, web, App, HttpServer, Responder};
+use actix_web::{get, post, web, App, Either, HttpServer, Responder};
 use elo::{Elo, HashMapIter, Player};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use structopt::StructOpt;
 use tokio::sync::RwLock;
+
+use crate::users::User;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -24,10 +26,9 @@ struct Opt {
     db_url: String,
 }
 
-#[get("/")]
-async fn index() -> impl Responder {
-    println!("Hello world!");
-    "Hello world!"
+#[get("/health")]
+async fn health() -> impl Responder {
+    "OK"
 }
 
 #[get("/players")]
@@ -43,12 +44,11 @@ async fn get_players(
     >,
 ) -> impl Responder {
     let elo = elo.read().await;
-    let mut response = String::new();
-    for player in elo.into_iter() {
-        println!("{}: {}", player.name(), player.rating());
-        response.push_str(&format!("{}: {}\n", player.name(), player.rating()));
-    }
-    response
+    web::Json(
+        elo.into_iter()
+            .map(|player| player.clone().into())
+            .collect::<Vec<User>>(),
+    )
 }
 
 #[post("/player/{name}")]
@@ -63,21 +63,82 @@ async fn add_player(
         >,
     >,
     name: web::Path<String>,
-    pool: web::Data<PgPool>,
-) -> impl Responder {
+) -> Either<impl Responder, impl Responder> {
     let mut elo = elo.write().await;
     let new_player = name.into_inner().to_string();
     elo.add_player(new_player.clone());
 
-    sqlx::query("INSERT INTO users (name, rating, number_of_games) VALUES ($1, $2, $3)")
-        .bind(&new_player)
-        .bind(0)
-        .bind(0)
-        .execute(&**pool)
-        .await
-        .unwrap();
+    match elo[&new_player].clone().try_into() {
+        Ok(user) => Either::Left(web::Json::<User>(user)),
+        Err(_) => {
+            return Either::Right(web::Json("Failed to convert player to user"));
+        }
+    }
+}
 
-    format!("Added player {}", new_player)
+#[post("/draw/{player1}/{player2}")]
+async fn add_draw(
+    elo: web::Data<
+        RwLock<
+            Elo<
+                'static,
+                HashMapIter<'static, std::string::String, Player>,
+                HashMap<std::string::String, Player>,
+            >,
+        >,
+    >,
+    player1: web::Path<String>,
+    player2: web::Path<String>,
+) -> Either<impl Responder, impl Responder> {
+    let mut elo = elo.write().await;
+
+    let player1 = player1.into_inner().to_string();
+    let player2 = player2.into_inner().to_string();
+
+    match elo.add_game(&player1, &player2, false) {
+        Ok(_) => {
+            let p1: User = elo[&player1].clone().try_into().unwrap();
+            let p2: User = elo[&player2].clone().try_into().unwrap();
+            Either::Left(web::Json(vec![p1, p2]))
+        }
+        Err(error) => Either::Right(format!(
+            "Failed to add draw between {} and {}, Error: {}",
+            player1, player2, error
+        )),
+    }
+}
+
+#[post("/game/{winner}/{loser}")]
+async fn add_game(
+    elo: web::Data<
+        RwLock<
+            Elo<
+                'static,
+                HashMapIter<'static, std::string::String, Player>,
+                HashMap<std::string::String, Player>,
+            >,
+        >,
+    >,
+    winner: web::Path<String>,
+    loser: web::Path<String>,
+) -> Either<impl Responder, impl Responder> {
+    let mut elo = elo.write().await;
+
+    let winner = winner.into_inner().to_string();
+    let loser = loser.into_inner().to_string();
+
+    //TODO: Fix return format
+    match elo.add_game(&winner, &loser, false) {
+        Ok(_) => {
+            let p1: User = elo[&winner].clone().try_into().unwrap();
+            let p2: User = elo[&loser].clone().try_into().unwrap();
+            Either::Left(web::Json(vec![p1, p2]))
+        }
+        Err(error) => Either::Right(format!(
+            "Failed to add game {} beat {}, Error: {}",
+            winner, loser, error
+        )),
+    }
 }
 
 async fn set_up_db(
@@ -102,19 +163,19 @@ async fn set_up_db(
     .execute(&pool)
     .await?;
 
-    println!("Created table users");
 
-    let users = sqlx::query("SELECT * FROM users").fetch_all(&pool).await?;
+    // let users = sqlx::query("SELECT * FROM users").fetch_all(&pool).await?;
 
-    let mut players = HashMap::new();
-    while let Some(user) = users.iter().next() {
-        let user = users::User::from_row(user).unwrap();
-        players.insert(
-            user.name.clone(),
-            Player::new(user.name, user.rating, user.number_of_games),
-        );
-    }
-    println!("Created players");
+    let players = HashMap::new();
+
+    // while let Some(user) = users.iter().next() {
+    //     let user = users::User::from_row(user).unwrap();
+    //     players.insert(
+    //         user.name.clone(),
+    //         Player::new(user.name, user.rating, user.number_of_games),
+    //     );
+    // }
+    // println!("Created players");
 
     let elo = Elo::new(players);
 
@@ -131,14 +192,15 @@ async fn main() -> std::io::Result<()> {
     let web_pool = web::Data::new(pool);
     let web_elo = web::Data::new(RwLock::new(elo));
 
-    println!("Starting server");
     HttpServer::new(move || {
         App::new()
             .app_data(web_pool.clone())
             .app_data(web_elo.clone())
+            .service(health)
             .service(get_players)
-            .service(index)
             .service(add_player)
+            .service(add_draw)
+            .service(add_game)
     })
     .bind(opt.listen_url)?
     .run()
