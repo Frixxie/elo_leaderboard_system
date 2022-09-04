@@ -1,3 +1,4 @@
+use elo::Player;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
 
@@ -23,5 +24,15 @@ impl User {
             rating: row.get::<i32, &str>("rating").try_into().unwrap_or(0),
             number_of_games: row.get::<i32, &str>("number_of_games").try_into().unwrap_or(0),
         })
+    }
+}
+
+impl Into<User> for Player {
+    fn into(self) -> User {
+        User {
+            name: self.name().to_string(),
+            rating: self.rating(),
+            number_of_games: self.number_of_games(),
+        }
     }
 }
