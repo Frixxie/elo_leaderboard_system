@@ -1,7 +1,7 @@
 FROM rust:latest as builder
 WORKDIR /usr/src/backend_server
 COPY . .
-RUN cargo install --path backend_server
+RUN cargo install --path .
 
 FROM debian:buster-slim
 RUN apt-get update && apt-get -y upgrade
