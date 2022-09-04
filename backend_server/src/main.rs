@@ -3,7 +3,7 @@ mod users;
 
 use db::{fresh_database, Database};
 
-use actix_web::{get, post, web, App, Either, HttpServer, Responder};
+use actix_web::{get, post, web, App, Either, Either::*, HttpServer, Responder};
 use structopt::StructOpt;
 
 use elo::AsyncElo;
@@ -51,8 +51,8 @@ async fn add_player(
     elo.add_player(&new_player).await;
 
     match elo.get_player(&new_player).await.unwrap().try_into() {
-        Ok(user) => Either::Left(web::Json::<User>(user)),
-        Err(_) => Either::Right(web::Json("Failed to convert player to user")),
+        Ok(user) => Left(web::Json::<User>(user)),
+        Err(_) => Right(web::Json("Failed to convert player to user")),
     }
 }
 
@@ -70,9 +70,9 @@ async fn add_draw(
         Ok(_) => {
             let p1: User = elo.get_player(&player1).await.unwrap().try_into().unwrap();
             let p2: User = elo.get_player(&player2).await.unwrap().try_into().unwrap();
-            Either::Left(web::Json(vec![p1, p2]))
+            Left(web::Json(vec![p1, p2]))
         }
-        Err(error) => Either::Right(format!(
+        Err(error) => Right(format!(
             "Failed to add draw between {} and {}, Error: {}",
             player1, player2, error
         )),
@@ -93,9 +93,9 @@ async fn add_game(
         Ok(_) => {
             let p1: User = elo.get_player(&winner).await.unwrap().try_into().unwrap();
             let p2: User = elo.get_player(&loser).await.unwrap().try_into().unwrap();
-            Either::Left(web::Json(vec![p1, p2]))
+            Left(web::Json(vec![p1, p2]))
         }
-        Err(error) => Either::Right(format!(
+        Err(error) => Right(format!(
             "Failed to add game {} beat {}, Error: {}",
             winner, loser, error
         )),
