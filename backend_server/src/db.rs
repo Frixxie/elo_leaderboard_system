@@ -7,6 +7,17 @@ pub struct Database {
     pool: PgPool
 }
 
+impl Database {
+    pub async fn set_up(db_url: &str) -> Result<Self, sqlx::Error> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(db_url)
+            .await?;
+
+        Ok(Self { pool })
+    }
+}
+
 pub struct PlayerIter<'a> {
     _phantom: PhantomData<&'a ()>,
 }
