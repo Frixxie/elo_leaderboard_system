@@ -87,13 +87,11 @@ async fn add_draw(
             >,
         >,
     >,
-    player1: web::Path<String>,
-    player2: web::Path<String>,
+    path: web::Path<(String, String)>,
 ) -> Either<impl Responder, impl Responder> {
     let mut elo = elo.write().await;
 
-    let player1 = player1.into_inner().to_string();
-    let player2 = player2.into_inner().to_string();
+    let (player1, player2) = path.into_inner();
 
     match elo.add_game(&player1, &player2, false) {
         Ok(_) => {
@@ -119,15 +117,12 @@ async fn add_game(
             >,
         >,
     >,
-    winner: web::Path<String>,
-    loser: web::Path<String>,
+    path: web::Path<(String, String)>,
 ) -> Either<impl Responder, impl Responder> {
     let mut elo = elo.write().await;
 
-    let winner = winner.into_inner().to_string();
-    let loser = loser.into_inner().to_string();
+    let (winner, loser) = path.into_inner();
 
-    //TODO: Fix return format
     match elo.add_game(&winner, &loser, false) {
         Ok(_) => {
             let p1: User = elo[&winner].clone().try_into().unwrap();
@@ -141,60 +136,16 @@ async fn add_game(
     }
 }
 
-async fn set_up_db(
-    pool: PgPool,
-) -> Result<
-    Elo<
-        'static,
-        HashMapIter<'static, std::string::String, Player>,
-        HashMap<std::string::String, Player>,
-    >,
-    sqlx::Error,
-> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            name TEXT NOT NULL,
-            rating INTEGER NOT NULL,
-            number_of_games INTEGER NOT NULL
-        )
-        "#,
-    )
-    .execute(&pool)
-    .await?;
-
-
-    // let users = sqlx::query("SELECT * FROM users").fetch_all(&pool).await?;
-
-    let players = HashMap::new();
-
-    // while let Some(user) = users.iter().next() {
-    //     let user = users::User::from_row(user).unwrap();
-    //     players.insert(
-    //         user.name.clone(),
-    //         Player::new(user.name, user.rating, user.number_of_games),
-    //     );
-    // }
-    // println!("Created players");
-
-    let elo = Elo::new(players);
-
-    Ok(elo)
-}
-
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let opt = Opt::from_args();
 
-    let pool = PgPoolOptions::new().connect(&opt.db_url).await.unwrap();
-
-    let elo = set_up_db(pool.to_owned()).await.unwrap();
-    let web_pool = web::Data::new(pool);
+    let players = HashMap::new();
+    let elo = Elo::new(players);
     let web_elo = web::Data::new(RwLock::new(elo));
 
     HttpServer::new(move || {
         App::new()
-            .app_data(web_pool.clone())
             .app_data(web_elo.clone())
             .service(health)
             .service(get_players)
