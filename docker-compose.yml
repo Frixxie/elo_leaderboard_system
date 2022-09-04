@@ -1,0 +1,20 @@
+version: '3.5'
+
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: example
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080
+
+  backend_server:
+    build: backend_server
+    restart: always
+    ports:
+      - 65534:8080
