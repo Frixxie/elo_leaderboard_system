@@ -82,6 +82,24 @@ impl AsyncEloStorage for &Database {
     }
 }
 
+impl Database {
+    /// get a list of all players in the database
+    pub async fn get_players(&self) -> Vec<Player> {
+        sqlx::query("SELECT name, rating, number_of_games FROM players")
+            .fetch_all(&self.pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| {
+                let name: String = row.get("name");
+                let rating: i32 = row.get("rating");
+                let number_of_games: i32 = row.get("number_of_games");
+                Player::new(name, rating as usize, number_of_games as usize)
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
