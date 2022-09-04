@@ -1,4 +1,6 @@
 mod users;
+mod db;
+
 use std::collections::HashMap;
 
 use actix_web::{get, post, web, App, Either, HttpServer, Responder};
