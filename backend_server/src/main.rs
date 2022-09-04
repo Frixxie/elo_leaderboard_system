@@ -16,14 +16,10 @@ use crate::users::User;
     about = "Backend for the Elo Leaderboard System"
 )]
 struct Opt {
-    #[structopt(short = "l", long = "listen_url", default_value = "0.0.0.0:8080")]
+    #[structopt(long, short, default_value = "0.0.0.0:8080")]
     listen_url: String,
 
-    #[structopt(
-        short = "d",
-        long = "db_url",
-        default_value = "postgres://postgres:example@db:5432"
-    )]
+    #[structopt(long, short, default_value = "postgres://postgres:example@db:5432")]
     db_url: String,
 }
 
