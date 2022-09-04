@@ -32,7 +32,7 @@ impl Into<User> for Player {
         User {
             name: self.name().to_string(),
             rating: self.rating(),
-            number_of_games: self.number_of_games(),
+            number_of_games: self.numer_of_games(),
         }
     }
 }
