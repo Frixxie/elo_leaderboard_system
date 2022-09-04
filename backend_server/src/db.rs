@@ -37,7 +37,7 @@ impl Database {
 }
 
 #[async_trait]
-impl AsyncEloStorage for Database {
+impl AsyncEloStorage for &Database {
     async fn add_player(&self, player: Player) {
         sqlx::query("INSERT INTO players (name, rating, number_of_games) VALUES ($1, $2, $3)")
             .bind(&player.name())
@@ -86,7 +86,7 @@ mod tests {
     async fn abstraction() {
         let db = Database::set_up(new_database("sqlite::memory:").await.unwrap()).await;
 
-        let elo = AsyncElo::new(db);
+        let elo = AsyncElo::new(&db);
 
         elo.add_player("a").await;
         elo.add_player("b").await;
