@@ -66,7 +66,7 @@ async fn add_draw(
 
     let (player1, player2) = path.into_inner();
 
-    match elo.add_game(&player1, &player2, false).await {
+    match elo.add_game(&player1, &player2, true).await {
         Ok(_) => {
             let p1: User = elo.get_player(&player1).await.unwrap().try_into().unwrap();
             let p2: User = elo.get_player(&player2).await.unwrap().try_into().unwrap();
