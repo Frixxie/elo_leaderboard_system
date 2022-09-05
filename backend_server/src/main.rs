@@ -6,6 +6,9 @@ use db::{fresh_database, Database};
 use actix_web::{get, post, web, App, Either, Either::*, HttpServer, Responder};
 use structopt::StructOpt;
 
+use utoipa::OpenApi;
+use utoipa_swagger_ui::{SwaggerUi, Url};
+
 use elo::AsyncElo;
 
 use crate::users::User;
@@ -23,11 +26,23 @@ struct Opt {
     db_url: String,
 }
 
+#[utoipa::path(
+    context_path = "/api",
+    responses(
+        (status=200, description="OK", body=String)
+    )
+)]
 #[get("/health")]
 async fn health() -> impl Responder {
     "OK"
 }
 
+#[utoipa::path(
+    context_path = "/api",
+    responses(
+        (status=200, description="List of Players", body=Json),
+    )
+)]
 #[get("/players")]
 async fn get_players(db: web::Data<Database>) -> impl Responder {
     web::Json(
@@ -39,6 +54,13 @@ async fn get_players(db: web::Data<Database>) -> impl Responder {
     )
 }
 
+#[utoipa::path(
+    context_path = "/api",
+    responses(
+        (status=200, description="The newly created player", body=Json),
+        (status=400, description="Player already exists", body=Json),
+    )
+)]
 #[post("/player/{name}")]
 async fn add_player(
     db: web::Data<Database>,
@@ -56,6 +78,13 @@ async fn add_player(
     }
 }
 
+#[utoipa::path(
+    context_path = "/api",
+    responses(
+        (status=200, description="The draw was added. Information on the players involved returned.", body=Json),
+        (status=400, description="Player(s) does not exist", body=Json),
+    )
+)]
 #[post("/draw/{player1}/{player2}")]
 async fn add_draw(
     db: web::Data<Database>,
@@ -79,6 +108,13 @@ async fn add_draw(
     }
 }
 
+#[utoipa::path(
+    context_path = "/api",
+    responses(
+        (status=200, description="The game was added. Information on the players involved returned.", body=Json),
+        (status=400, description="Player(s) does not exist", body=Json),
+    )
+)]
 #[post("/game/{winner}/{loser}")]
 async fn add_game(
     db: web::Data<Database>,
@@ -110,14 +146,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let web_db = web::Data::new(db);
 
+    #[derive(OpenApi)]
+    #[openapi(paths(health, get_players, add_player, add_draw, add_game))]
+    struct ApiDoc;
+
     HttpServer::new(move || {
         App::new()
             .app_data(web_db.clone())
-            .service(health)
-            .service(get_players)
-            .service(add_player)
-            .service(add_draw)
-            .service(add_game)
+            .service(
+                web::scope("/api")
+                    .service(health)
+                    .service(get_players)
+                    .service(add_player)
+                    .service(add_draw)
+                    .service(add_game),
+            )
+            .service(SwaggerUi::new("/swagger-ui/{_:.*}").urls(vec![(
+                Url::new("api", "/api-doc/openapi.json"),
+                ApiDoc::openapi(),
+            )]))
     })
     .bind(opt.listen_url)?
     .run()
