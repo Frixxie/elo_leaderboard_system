@@ -27,12 +27,12 @@ impl User {
     }
 }
 
-impl Into<User> for Player {
-    fn into(self) -> User {
-        User {
-            name: self.name().to_string(),
-            rating: self.rating(),
-            number_of_games: self.numer_of_games(),
+impl From<Player> for User {
+    fn from(player: Player) -> Self {
+        Self {
+            name: player.name().to_string(),
+            rating: player.rating(),
+            number_of_games: player.number_of_games(),
         }
     }
 }

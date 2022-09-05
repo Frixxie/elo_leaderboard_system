@@ -1,11 +1,12 @@
+mod db;
 mod users;
-use std::collections::HashMap;
 
-use actix_web::{get, post, web, App, Either, HttpServer, Responder};
-use elo::{Elo, HashMapIter, Player};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use db::{fresh_database, Database};
+
+use actix_web::{get, post, web, App, Either, Either::*, HttpServer, Responder};
 use structopt::StructOpt;
-use tokio::sync::RwLock;
+
+use elo::AsyncElo;
 
 use crate::users::User;
 
@@ -15,14 +16,10 @@ use crate::users::User;
     about = "Backend for the Elo Leaderboard System"
 )]
 struct Opt {
-    #[structopt(short = "l", long = "listen_url", default_value = "0.0.0.0:8080")]
+    #[structopt(long, short, default_value = "0.0.0.0:8080")]
     listen_url: String,
 
-    #[structopt(
-        short = "d",
-        long = "db_url",
-        default_value = "postgres://postgres:example@db:5432"
-    )]
+    #[structopt(long, short, default_value = "postgres://postgres:example@db:5432")]
     db_url: String,
 }
 
@@ -32,74 +29,50 @@ async fn health() -> impl Responder {
 }
 
 #[get("/players")]
-async fn get_players(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
-) -> impl Responder {
-    let elo = elo.read().await;
+async fn get_players(db: web::Data<Database>) -> impl Responder {
     web::Json(
-        elo.into_iter()
-            .map(|player| player.clone().into())
+        db.get_players()
+            .await
+            .into_iter()
+            .map(|p| p.into())
             .collect::<Vec<User>>(),
     )
 }
 
 #[post("/player/{name}")]
 async fn add_player(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
+    db: web::Data<Database>,
     name: web::Path<String>,
 ) -> Either<impl Responder, impl Responder> {
-    let mut elo = elo.write().await;
-    let new_player = name.into_inner().to_string();
-    elo.add_player(new_player.clone());
+    let db = &*db.into_inner();
+    let elo = AsyncElo::new(db);
+    let new_player = name.into_inner();
 
-    match elo[&new_player].clone().try_into() {
-        Ok(user) => Either::Left(web::Json::<User>(user)),
-        Err(_) => {
-            return Either::Right(web::Json("Failed to convert player to user"));
-        }
+    elo.add_player(&new_player).await;
+
+    match elo.get_player(&new_player).await.unwrap().try_into() {
+        Ok(user) => Left(web::Json::<User>(user)),
+        Err(_) => Right(web::Json("Failed to convert player to user")),
     }
 }
 
 #[post("/draw/{player1}/{player2}")]
 async fn add_draw(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
+    db: web::Data<Database>,
     path: web::Path<(String, String)>,
 ) -> Either<impl Responder, impl Responder> {
-    let mut elo = elo.write().await;
+    let db = &*db.into_inner();
+    let elo = AsyncElo::new(db);
 
     let (player1, player2) = path.into_inner();
 
-    match elo.add_game(&player1, &player2, false) {
+    match elo.add_game(&player1, &player2, true).await {
         Ok(_) => {
-            let p1: User = elo[&player1].clone().try_into().unwrap();
-            let p2: User = elo[&player2].clone().try_into().unwrap();
-            Either::Left(web::Json(vec![p1, p2]))
+            let p1: User = elo.get_player(&player1).await.unwrap().try_into().unwrap();
+            let p2: User = elo.get_player(&player2).await.unwrap().try_into().unwrap();
+            Left(web::Json(vec![p1, p2]))
         }
-        Err(error) => Either::Right(format!(
+        Err(error) => Right(format!(
             "Failed to add draw between {} and {}, Error: {}",
             player1, player2, error
         )),
@@ -108,28 +81,21 @@ async fn add_draw(
 
 #[post("/game/{winner}/{loser}")]
 async fn add_game(
-    elo: web::Data<
-        RwLock<
-            Elo<
-                'static,
-                HashMapIter<'static, std::string::String, Player>,
-                HashMap<std::string::String, Player>,
-            >,
-        >,
-    >,
+    db: web::Data<Database>,
     path: web::Path<(String, String)>,
 ) -> Either<impl Responder, impl Responder> {
-    let mut elo = elo.write().await;
+    let db = &*db.into_inner();
+    let elo = AsyncElo::new(db);
 
     let (winner, loser) = path.into_inner();
 
-    match elo.add_game(&winner, &loser, false) {
+    match elo.add_game(&winner, &loser, false).await {
         Ok(_) => {
-            let p1: User = elo[&winner].clone().try_into().unwrap();
-            let p2: User = elo[&loser].clone().try_into().unwrap();
-            Either::Left(web::Json(vec![p1, p2]))
+            let p1: User = elo.get_player(&winner).await.unwrap().try_into().unwrap();
+            let p2: User = elo.get_player(&loser).await.unwrap().try_into().unwrap();
+            Left(web::Json(vec![p1, p2]))
         }
-        Err(error) => Either::Right(format!(
+        Err(error) => Right(format!(
             "Failed to add game {} beat {}, Error: {}",
             winner, loser, error
         )),
@@ -137,16 +103,16 @@ async fn add_game(
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opt = Opt::from_args();
 
-    let players = HashMap::new();
-    let elo = Elo::new(players);
-    let web_elo = web::Data::new(RwLock::new(elo));
+    let db = Database::new(fresh_database(&opt.db_url).await?).await;
+
+    let web_db = web::Data::new(db);
 
     HttpServer::new(move || {
         App::new()
-            .app_data(web_elo.clone())
+            .app_data(web_db.clone())
             .service(health)
             .service(get_players)
             .service(add_player)
