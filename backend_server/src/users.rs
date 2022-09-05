@@ -1,8 +1,9 @@
 use elo::Player;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct User {
     pub name: String,
     pub rating: usize,
