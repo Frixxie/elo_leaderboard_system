@@ -31,12 +31,12 @@ struct Opt {
     context_path = "/api",
     responses(
         (status=200, description="OK", body=String,
-         example = json!({"message": "OK"}))
+         example = json!({"status": "OK"}))
     )
 )]
 #[get("/health")]
 async fn health() -> impl Responder {
-    web::Json(json!({"message": "OK"}))
+    web::Json(json!({"status": "OK"}))
 }
 
 #[utoipa::path(
@@ -183,4 +183,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .run()
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    use actix_web::{
+        body::MessageBody,
+        http::{
+            self,
+            header::{ContentType, Header},
+        },
+        test,
+    };
+
+    #[actix_web::test]
+    async fn test_health() {
+        let app = test::init_service(App::new().service(health)).await;
+
+        let req = test::TestRequest::get().uri("/health").to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(ContentType::name()).unwrap(),
+            "application/json"
+        );
+        // convert the body to a JSON object
+        let response: serde_json::Value = serde_json::from_str(
+            std::str::from_utf8(&resp.into_body().try_into_bytes().unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(response, json!({"status": "OK"}));
+    }
 }
