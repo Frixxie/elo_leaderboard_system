@@ -4,6 +4,7 @@ mod users;
 use db::{fresh_database, Database};
 
 use actix_web::{get, post, web, App, Either, Either::*, HttpServer, Responder};
+use serde_json::json;
 use structopt::StructOpt;
 
 use utoipa::OpenApi;
@@ -29,12 +30,13 @@ struct Opt {
 #[utoipa::path(
     context_path = "/api",
     responses(
-        (status=200, description="OK", body=String)
+        (status=200, description="OK", body=String,
+         example = json!({"message": "OK"}))
     )
 )]
 #[get("/health")]
 async fn health() -> impl Responder {
-    "OK"
+    web::Json(json!({"message": "OK"}))
 }
 
 #[utoipa::path(
@@ -59,6 +61,9 @@ async fn get_players(db: web::Data<Database>) -> impl Responder {
     responses(
         (status=200, description="The newly created player", body=Json),
         (status=400, description="Player already exists", body=Json),
+    ),
+    params(
+        ("name", description = "Name of the player to be added")
     )
 )]
 #[post("/player/{name}")]
@@ -83,6 +88,10 @@ async fn add_player(
     responses(
         (status=200, description="The draw was added. Information on the players involved returned.", body=Json),
         (status=400, description="Player(s) does not exist", body=Json),
+    ),
+    params(
+        ("player1", description = "First player"),
+        ("player2", description = "Second player")
     )
 )]
 #[post("/draw/{player1}/{player2}")]
@@ -113,6 +122,10 @@ async fn add_draw(
     responses(
         (status=200, description="The game was added. Information on the players involved returned.", body=Json),
         (status=400, description="Player(s) does not exist", body=Json),
+    ),
+    params(
+        ("winner", description = "Winner of the game"),
+        ("loser", description = "Loser of the game")
     )
 )]
 #[post("/game/{winner}/{loser}")]
