@@ -296,6 +296,7 @@ dependencies = [
  "async-trait",
  "elo",
  "serde",
+ "serde_json",
  "sqlx",
  "structopt",
  "tokio",
