@@ -7,7 +7,9 @@ use actix_web::{get, post, web, App, Either, Either::*, HttpServer, Responder};
 use serde_json::json;
 use structopt::StructOpt;
 
-use utoipa::OpenApi;
+use serde::Deserialize;
+
+use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::{SwaggerUi, Url};
 
 use elo::AsyncElo;
@@ -42,7 +44,7 @@ async fn health() -> impl Responder {
 #[utoipa::path(
     context_path = "/api",
     responses(
-        (status=200, description="List of Players", body=Json),
+        (status=200, description="List of Players", body=String),
     )
 )]
 #[get("/players")]
@@ -59,8 +61,8 @@ async fn get_players(db: web::Data<Database>) -> impl Responder {
 #[utoipa::path(
     context_path = "/api",
     responses(
-        (status=200, description="The newly created player", body=Json),
-        (status=400, description="Player already exists", body=Json),
+        (status=200, description="The newly created player", body=User),
+        (status=400, description="Player already exists", body=User),
     ),
     params(
         ("name", description = "Name of the player to be added")
@@ -83,70 +85,57 @@ async fn add_player(
     }
 }
 
-#[utoipa::path(
-    context_path = "/api",
-    responses(
-        (status=200, description="The draw was added. Information on the players involved returned.", body=Json),
-        (status=400, description="Player(s) does not exist", body=Json),
-    ),
-    params(
-        ("player1", description = "First player"),
-        ("player2", description = "Second player")
-    )
-)]
-#[post("/draw/{player1}/{player2}")]
-async fn add_draw(
-    db: web::Data<Database>,
-    path: web::Path<(String, String)>,
-) -> Either<impl Responder, impl Responder> {
-    let db = &*db.into_inner();
-    let elo = AsyncElo::new(db);
-
-    let (player1, player2) = path.into_inner();
-
-    match elo.add_game(&player1, &player2, true).await {
-        Ok(_) => {
-            let p1: User = elo.get_player(&player1).await.unwrap().try_into().unwrap();
-            let p2: User = elo.get_player(&player2).await.unwrap().try_into().unwrap();
-            Left(web::Json(vec![p1, p2]))
-        }
-        Err(error) => Right(format!(
-            "Failed to add draw between {} and {}, Error: {}",
-            player1, player2, error
-        )),
-    }
+#[derive(Deserialize, ToSchema)]
+#[schema(example = json!({"is_draw": false, "player1": "jens", "player2": "arne"}))]
+struct GameParams {
+    is_draw: bool,
+    player1: String,
+    player2: String,
 }
 
 #[utoipa::path(
     context_path = "/api",
     responses(
-        (status=200, description="The game was added. Information on the players involved returned.", body=Json),
-        (status=400, description="Player(s) does not exist", body=Json),
+        (status=200, description="The game was added. Information on the players involved returned.", body=Vec<User>),
+        (status=400, description="Player(s) does not exist", body=String),
     ),
-    params(
-        ("winner", description = "Winner of the game"),
-        ("loser", description = "Loser of the game")
+    request_body(
+        description = "The game to be added",
+        content = GameParams,
+        content_type = "application/json"
     )
 )]
-#[post("/game/{winner}/{loser}")]
+#[post("/game")]
 async fn add_game(
     db: web::Data<Database>,
-    path: web::Path<(String, String)>,
+    params: web::Json<GameParams>,
 ) -> Either<impl Responder, impl Responder> {
     let db = &*db.into_inner();
     let elo = AsyncElo::new(db);
+    let game = params.into_inner();
 
-    let (winner, loser) = path.into_inner();
-
-    match elo.add_game(&winner, &loser, false).await {
+    match elo
+        .add_game(&game.player1, &game.player2, game.is_draw)
+        .await
+    {
         Ok(_) => {
-            let p1: User = elo.get_player(&winner).await.unwrap().try_into().unwrap();
-            let p2: User = elo.get_player(&loser).await.unwrap().try_into().unwrap();
+            let p1: User = elo
+                .get_player(&game.player1)
+                .await
+                .unwrap()
+                .try_into()
+                .unwrap();
+            let p2: User = elo
+                .get_player(&game.player2)
+                .await
+                .unwrap()
+                .try_into()
+                .unwrap();
             Left(web::Json(vec![p1, p2]))
         }
         Err(error) => Right(format!(
             "Failed to add game {} beat {}, Error: {}",
-            winner, loser, error
+            game.player1, game.player2, error
         )),
     }
 }
@@ -160,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let web_db = web::Data::new(db);
 
     #[derive(OpenApi)]
-    #[openapi(paths(health, get_players, add_player, add_draw, add_game))]
+    #[openapi(paths(health, get_players, add_player, add_game))]
     struct ApiDoc;
 
     HttpServer::new(move || {
@@ -171,7 +160,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .service(health)
                     .service(get_players)
                     .service(add_player)
-                    .service(add_draw)
                     .service(add_game),
             )
             .service(SwaggerUi::new("/swagger-ui/{_:.*}").urls(vec![(
